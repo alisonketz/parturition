@@ -22,11 +22,13 @@ library(dplyr)
 library(ggmap)
 library(adehabitatHR)
 library(adehabitatLT)
+library(maptools)
 
 
 
 setwd("~/Documents/Parturition/180108_parturition")
-    
+
+load("predict.out.Rdata")    
 
 ###
 ### Load VIT data
@@ -79,7 +81,7 @@ d$julian=yday(mdy_hms(d$date_time_gmt))
 #or keep all data, but exclude first couple hundred observations
 #for plotting all data, not just window of parturition
 
-d=data.frame(d %>% group_by(id) %>% slice(200:(n()-200)))
+d=data.frame(d %>% group_by(id) %>% slice(300:(n()-300)))
 table(d$id)
 
 ### Adding Vit data to main GPS dataframe
@@ -100,15 +102,15 @@ sum(d$dropped)
 ###
 ### Dealing with NA's
 ###
-
-for(i in 2:records){
-    if(is.na(d[i,5]))d[i,5]=d[i-1,5]
-    if(is.na(d[i,6]))d[i,6]=d[i-1,6]
-    if(is.na(d[i,7]))d[i,7]=d[i-1,7]
-    }
-
-which(is.na(d[,7]))
-d=d[-1,]
+# 
+# for(i in 2:records){
+#     if(is.na(d[i,5]))d[i,5]=d[i-1,5]
+#     if(is.na(d[i,6]))d[i,6]=d[i-1,6]
+#     if(is.na(d[i,7]))d[i,7]=d[i-1,7]
+#     }
+# 
+# which(is.na(d[,7]))
+# d=d[-1,]
 
 
 head(d[,5:7])
@@ -217,6 +219,35 @@ vit.records
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#999999", "#E69F00", "#56B4E9", "#009E73")
 length(cbPalette)
 
+###
+### from changepoint prediction for determining alternative response
+###
+
+predict.out$individs=as.character(predict.out$individs)
+predict.out$dates_julian_min=as.numeric(predict.out$dates_julian_min)
+remove=setdiff(predict.out$individs,individs)
+predict.out.sub=predict.out
+for(i in 1:4){
+    predict.out.sub=predict.out.sub[-which(predict.out.sub$individ==remove[i]),]
+}
+
+predict.out.sub
+individs_step4h
+keep=c(4,12,11,5)
+
+predict.out.star=predict.out
+predict.out.star=predict.out.star[keep,]
+predict.out.star
+
+
+
+pred.out.records = rep(list(list()),8) 
+for(i in 1:8){
+    pred.out.records[[i]]=which(julian.out[i,]==predict.out.sub$birth.pred[i])
+}
+pred.out.records
+
+
 # pdf("moverate1.pdf",width=6,height=8)
 par(mfrow=c(4,1))
 for(i in 1:4){
@@ -224,6 +255,8 @@ for(i in 1:4){
     lines(moverate.mean[i,])
     abline(v=head(vit.records[[i]],1),col="darkred",lwd=2)
     abline(v=tail(vit.records[[i]],1),col="darkred",lwd=2)
+    abline(v=head(pred.out.records[[i]],1),col="darkblue",lwd=2)
+    abline(v=tail(pred.out.records[[i]],1),col="darkblue",lwd=2)
 }
 # dev.off()
 
@@ -234,6 +267,8 @@ for(i in 5:8){
     # lines(moverate.mean[i,])  
     abline(v=head(vit.records[[i]],1),col="darkred",lwd=2)
     abline(v=tail(vit.records[[i]],1),col="darkred",lwd=2)
+    abline(v=head(pred.out.records[[i]],1),col="darkblue",lwd=2)
+    abline(v=tail(pred.out.records[[i]],1),col="darkblue",lwd=2)
 }
 # dev.off()
 
@@ -287,11 +322,28 @@ move.rate.star[which(is.na(move.rate.star))]
 #calculate a moving average for 3 day period. This window could be changed, and we should check for different windows
 moverate.mean.star <- rollapply(move.rate.star, num.obs.day.star*3, mean, na.rm=T, by.column=T,partial=T)
 
-vit.records.star = rep( list(list()), n.vit.star ) 
+vit.records.star = rep( list(list()), n.vit.star )
+pred.out.records.star = rep(list(list()),n.vit.star) 
+
 for(i in 1:n.vit.star){
     vit.records.star[[i]]=which(vit.drop.star[i,]==1)
+    pred.out.records.star[[i]]=which(julian.out.star[i,]==predict.out.star$birth.pred[i])
 }
 vit.records.star
+
+pred.out.records.star
+
+
+
+
+predict.out.star
+as.numeric(predict.out.star$birth.pred[i])
+min(d.star$julian)
+min(predict.out.star$birth.pred)
+
+which(d.star$julian==445,2)
+
+max(d.star$julian)
 
 ###
 ### remove anamalous first observation
@@ -306,7 +358,9 @@ for(i in 1:4){
     lines(moverate.mean.star[i,])
     abline(v=head(vit.records.star[[i]],1),col="darkred")
     abline(v=tail(vit.records.star[[i]],1),col="darkred")
-}
+    abline(v=head(pred.out.records.star[[i]],1),col="darkblue",lwd=2)
+    abline(v=tail(pred.out.records.star[[i]],1),col="darkblue",lwd=2)
+        }
 # dev.off()
 
 
@@ -489,3 +543,5 @@ cat(which(d.mort$lowtag==individs[i]),'\t')
 
 short1=d[d$id==5732,]#only monitoring every 4 hours
 short1
+
+

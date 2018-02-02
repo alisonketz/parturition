@@ -1,5 +1,5 @@
 ###
-### 1/19/2018 
+### 1/31/2018 
 ### Alison Ketz
 ### Movement data preprocessing using adehabitatLT package
 ###
@@ -24,6 +24,9 @@ library(adehabitatHR)
 library(adehabitatLT)
 library(maptools)
 library(changepoint)
+library(sp)
+library(spatstat)#for "duplicate" function
+library(readr)
 
 
 
@@ -39,23 +42,36 @@ names(d.vit)=tolower(gsub('[[:punct:]]',"",names(d.vit)))
 names(d.vit)[10]="lowtag"
 d.vit$datedropped=as.character(d.vit$datedropped)
 d.vit$juliandropped=yday(mdy_hms(d.vit$datedropped))
+head(d.vit)
+d.vit$datefawnfound=as.character(d.vit$datefawnfound)
+d.vit$julianfawnfound=yday(mdy_hms(d.vit$datefawnfound))
 
 n.vit=length(d.vit$lowtag)
 
+
+d.vit$juliandropped
+
+#reorder vit data by lowtag/lowtag
+d.vit=d.vit[order(d.vit$lowtag),]
+
+#extract the individual ids
+individs=d.vit$lowtag
+###
+### increased fixes parturition window
+###
+
+start=yday(mdy("05/05/2017")) # May 1 beginning of parturitionn period
+end=yday(mdy("07/07/2017")) #end of parturition period
 
 ###
 ### Load data GPS location data
 ###
 
-
-start=yday(mdy("05/05/2017")) # May 1 beginning of parturitionn period
-end=yday(mdy("07/07/2017")) #end of parturition period
-
 d = matrix(NA,nr=1,nc=13)
-#for loop for reading in data, using vector of id's from the vit dataset
+#for loop for reading in data, using vector of lowtag's from the vit dataset
 for(i in 1:n.vit){
     d.temp = read.table(paste("/home/aketz/Documents/Data/GPS_locations_ind/",d.vit$lowtag[i],".csv",sep=""),sep=",",header=TRUE,stringsAsFactors = FALSE)
-    d.temp$id = d.vit$lowtag[i]
+    d.temp$lowtag = d.vit$lowtag[i]
     names(d.temp)=tolower(names(d.temp))
     d=rbind(d,as.matrix(d.temp))
 }
@@ -71,18 +87,30 @@ for(j in class.indx){
     d[,j]=as.numeric(d[,j])
 }
 
-d$id=as.factor(d$id)
+d$lowtag=as.factor(d$lowtag)
+
+
+###
+### double checking for duplicate locations
+###
+
+summary(duplicated(d))
 
 #calculating julian day and omitting outside of parturition window
-d$julian=yday(mdy_hms(d$date_time_gmt))
+d$julian=yday(mdy_hms(d$date_time_local))
 
-# d=d[d$julian>start & d$julian < end,]
+
+###
+### subset entire dataset to parturition window
+###
+
+d=d[d$julian>=start & d$julian <= end,]
 
 #or keep all data, but exclude first couple hundred observations
 #for plotting all data, not just window of parturition
 
-d=data.frame(d %>% group_by(id) %>% slice(300:(n()-300)))
-table(d$id)
+# d=data.frame(d %>% group_by(lowtag) %>% slice(200:(n()-200)))
+table(d$lowtag)
 
 ### Adding Vit data to main GPS dataframe
 
@@ -92,7 +120,7 @@ records=dim(d)[1]
 records
 for(i in 1:records){
     for(j in 1:n.vit){
-        if(d$id[i]==d.vit$lowtag[j]){
+        if(d$lowtag[i]==d.vit$lowtag[j]){
             if(d$julian[i]==d.vit$juliandropped[j])d$dropped[i]=1
         }
     }
@@ -100,76 +128,109 @@ for(i in 1:records){
 sum(d$dropped)
 
 
-
 ###
-### Formatting for adehabitateLT ltraj object
-
-d$date_time_local=as.POSIXct(strptime(d$date_time_local,format="%m-%d-%Y %H:%M:%S"),tz="CST")
-
-#d=d[!is.na(d$longitude),]
-
-
-#all missing data points are missing for both lats and longs
-which(is.na(d$longitude))==which(is.na(d$latitude))
-d.spdf=d
-d.spdf= SpatialPointsDataFrame(coords=as.data.frame(cbind(d$longitude,d$latitude)),data=d.spdf,proj4string =
-                                   CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
-
-plot(d.spdf)
-d.traj <- as.ltraj(coordinates(d.spdf), date=d.spdf$date_time_local,id=d.spdf$id)
-head(d.spdf)
-
-
+### Converting date to POSIXct format
 ###
-### Minimum convex polygon
-###
-d.mcp <- mcp(d.spdf[, "id"], percent = 100,unin = "m", unout = "km2")
 
-# You can plot the home ranges - use the 'col' argument to specify colors
-# for different individuals - there are 7 individuals tracked, so we can
-# specify we want to use colors 1:7, based on standard R colors. You could
-# customize this by specifying indivual colors (one per individual ID) add
-# the argument 'axes=TRUE' to add x/y axes based on the data projection
-library(RColorBrewer)
+d$date_time_local=as.POSIXct(strptime(d$date_time_local,format="%m-%d-%Y %H:%M:%S"),tz="CST6CDT")
+d$date_time_gmt=as.POSIXct(strptime(d$date_time_gmt,format="%m-%d-%Y %H:%M:%S"),tz="GMT")
 
 
-plot(d.mcp, col = brewer.pal(12,"Paired",color))
-# Custom-specified colors with axes
+
+#Create time lag between successive locations to censor data if needed.
+timediff <- diff(d$date_time_local)
+d=d[-1,]
+d$timediff <-round(as.numeric(abs(timediff)))
+rm=which(d$timediff>10)
+d=d[-rm,]
+
+names(d)[1]="devname"
+head(d)
 
 
 ###
-### Kernal Density Estimate
+### Dealing with missing data
 ###
 
-d.Khref <- kernelUD(d.spdf[, "id"], h = "href")
-# You can plot the KDE for each individual separately:
-image(d.Khref)
-#can output to raster
+#option 1, just remove
+# d=d[!is.na(d$longitude),]
+
+#option 2 impute
+d$missing=0
+for( i in 1:dim(d)[1]){
+    if(is.na(d$longitude[i]))d$missing[i]=1
+}
+head(d$latitude)
+head(d$longitude)
+head(d$missing)
+sum(d$missing)
+
+dim(d)
+
+miss.per.ind=c()
+for(j in 1:n.vit){
+    miss.per.ind=c(miss.per.ind,sum(d$missing[d$lowtag==individs[j]]))
+}
 
 
+d=d[-c(1:3),]
 
-###
-### Dealing with NA's
-###
-
-for(i in 2:records){
-    if(is.na(d[i,5]))d[i,5]=d[i-1,5]
-    if(is.na(d[i,6]))d[i,6]=d[i-1,6]
-    if(is.na(d[i,7]))d[i,7]=d[i-1,7]
+for(i in 2:(dim(d)[1]-1)){
+    if(is.na(d$longitude[i])){
+        a=i-1
+        while(is.na(d$longitude[a])){a=a-1}
+        b=i+1
+        while(is.na(d$longitude[b])){b=b+1}
+        d[i,6:5] = midPoint(d[a,6:5],d[b,6:5])
     }
+}
+
+
+###
+### Without projection of datum into R, can use geospatial package to calculate distance and bearings
+###
+
+bearing.out=bearing(cbind(d$longitude,d$latitude))
+d$bearing=bearing.out
+dist.out = distHaversine(d[,6:5])
+d=d[-1,]
+d$distance = dist.out
+
+
+d=d[-c(dim(d)[1]-1,dim(d)[1]),]#remove last 2 entries which are NA and NaN
+
+tail(d)
+
+
+###
+### Projections! 
+###
+
+# points from scratch
+coords = cbind(d$longitude, d$latitude)
+sp = SpatialPoints(coords)
+
+# make spatial data frame
+# spdf = SpatialPointsDataFrame(coords, d)
+spdf = SpatialPointsDataFrame(sp, d)
+
+# EPSG strings
+latlong = "+init=epsg:4326"
+proj4string(spdf) = CRS(latlong)
+
+d.sp.proj = spTransform(spdf, CRS("+proj=tmerc +lat_0=0 +lon_0=-90 +k=0.9996 +x_0=520000
+                                   +y_0=-4480000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"))
+
+d=data.frame(d.sp.proj)
+
+#20 and 21 are the coordinates in UTMs x y
 
 ###
 ### Animal paths
-###
+### Using the adelehabitatLT
 
-d.traj <- as.ltraj(as.data.frame(cbind(d$longitude,d$latitude)), date=d$date_time_local,id=d$id)
-
-# d.traj <- as.ltraj(coordinates(d.spdf), date=d.spdf$date_time_local,id=d.spdf$id)
-# View what this looks like
-# d.traj
-# refda <- strptime("00:00", "%H:%M", tz="US/Central")
-# 
-# d.traj.set=setNA(d.traj,refda)
+d.traj <- as.ltraj(d[,20:21], date=d$date_time_local,id=d$lowtag)
+plot(d.traj)
 
 #Plot the trajectory for each individual - the numbers correspond to the ID in the d.traj object above
 #blue is start
@@ -179,56 +240,39 @@ par(mfrow=c(2,2))
 for(i in 1:n.vit){
     plot(d.traj[i])
 }
-d.traj[1]
-summary(d.traj$id)
-head(d.traj)
+###
+### The last movements of individ1 is crazy
+### must remove those points
+plot(d.traj[1])
+
+
+
 
 hist(d.traj[1], "dist", freq = TRUE)
+hist(d.traj[2], "dist", freq = TRUE)
 
-
-
-
+plotltr(d.traj[1], "dt/3600/24")
 
 #converts traj object to data frame
 dfdeer <- ld(d.traj)
 dfdeer$id=as.character(dfdeer$id)
+dfdeer=rbind(rep(NA,dim(dfdeer)[2]),dfdeer)
 
-
-individs=levels(d$id) #individua
-class(individs)
-
-hist(dfdeer$rel.angle[dfdeer$id==individs[5]])
-
-hist(dfdeer$rel.angle)
-
-par(mfrow=c(2,2))
-for(i in 1:n.vit){
-    hist(dfdeer$rel.angle[dfdeer$id==individs[i]])
-    plot(dfdeer$rel.angle[dfdeer$id==individs[i]])
-    hist(dfdeer$abs.angle[dfdeer$id==individs[i]])
-    plot(dfdeer$rel.angle[dfdeer$id==individs[i]])
-    }
-
+dfdeer=dfdeer[-dim(dfdeer)[1],]
 
 d$rel.angle=dfdeer$rel.angle
-d$abs.angle=dfdeer$abs.angle
-d$dist=dfdeer$dist
+d$dist.traj=dfdeer$dist
 d$R2n=dfdeer$R2n
 d$dx=dfdeer$dx
 d$dy=dfdeer$dy
 d$dt=dfdeer$dt
 
-for(i in 16:22){
-    d[is.na(d[,i]),i]=2*pi*.99999
-}
-      names(d)
 
 #: the squared distance between the first relocation of the trajectory
-
-
 # and the current relocation is often used to test some movements models
 # (e.g. the correlated random walk, see the seminal paper of Kareiva and
 # Shigesada, 1983).
+
 # • dx, dy, dt: these parameters measured at relocation i describe the increments
 # of the x and y directions and time between the relocations i and
 # i + 1. Such parameters are often used in the framework of stochastic differential
@@ -236,14 +280,38 @@ for(i in 16:22){
 #                     2004);
 # • dist: the distance between successive relocations is often used in animal
 # movement analysis (e.g. Root and Kareiva 1984, Marsh and Jones 1988);
+
 # • abs.angle: the absolute angle αi between the x direction and the step
 # built by relocations i and i + 1 is sometimes used together with the parameter
 # dist to fit movement models (e.g. Marsh and Jones 1988);
+
 # • rel.angle: the relative angle βi measures the change of direction between
 # the step built by relocations i − 1 and i and the step built by relocations
 # i and i + 1 (often called “turning angle”). It is often used together with
 # the parameter dist to fit movement models (e.g. Root and Kareiva 1984,
 #                                            Marsh and Jones 1988);
+
+###
+### remove the initial index of each individual 
+### because it makes no sense to calculate distances 
+### between the locations of the individuals
+###
+
+remove.indx=which(is.na(d$dist.traj))
+d[remove.indx,]
+d=d[-remove.indx,]
+
+###
+###EDA plots
+###
+
+plot(d$dist.traj,d$distance)#identical
+
+plot(d$bearing,d$rel.angle)#whoa mess
+
+plot(d$altitude,d$dist.traj)
+
+
 
 
 
@@ -255,31 +323,28 @@ for(i in 16:22){
 ### Looking at moving window correlation of turn angle and distance
 ###
 
-n.obs=as.numeric(table(d$id))
+n.obs=as.numeric(table(d$lowtag))
 n.obs
 
 
-#relative angle      
+#relative angle
 angle.dist.corr=matrix(NA,nr=n.vit,nc=max(n.obs))
 vit.drop=matrix(NA,nr=n.vit,nc=max(n.obs))
 julian.out=matrix(NA,nr=n.vit,nc=max(n.obs))
 window=18
 for(j in 1:n.vit){
-    d.tmp=d[d$id==individs[j],]
+    d.tmp=d[d$lowtag==individs[j],]
     for(i in (1+window):dim(d.tmp)[1]){
-        angle.dist.corr[j,i]=corr(cbind(d.tmp$rel.angle[(i-window):i],d.tmp$dist[i-window:i]))
-        vit.drop[j,i]=d.tmp[i,15]
-        julian.out[j,i]=d.tmp$julian[i] 
-        }    
+        angle.dist.corr[j,i]=corr(cbind(d.tmp$rel.angle[(i-window):i],d.tmp$dist.traj[i-window:i]))
+        vit.drop[j,i]=d.tmp$dropped[i]
+        julian.out[j,i]=d.tmp$julian[i]
+        }
 }
 angle.dist.corr=angle.dist.corr[,(window+2):dim(angle.dist.corr)[2]]
 vit.drop=vit.drop[,(window+2):dim(vit.drop)[2]]
 julian.out=julian.out[,(window+2):dim(julian.out)[2]]
 
-
-
-
-vit.records = rep( list(list()), n.vit ) 
+vit.records = rep( list(list()), n.vit )
 for(i in 1:n.vit){
     vit.records[[i]]=which(vit.drop[i,]==1)
 }
@@ -287,6 +352,7 @@ vit.records
 
 
 par(mfrow=c(4,3))
+par(mfrow=c(1,1))
 for(j in 1:n.vit){
     plot(angle.dist.corr[j,])
     abline(v=head(vit.records[[j]],1),col="darkred",lwd=2)
@@ -296,45 +362,14 @@ for(j in 1:n.vit){
 # angle.dist.corr=angle.dist.corr[,-1]
 
 
-#absolute angle      
-absangle.dist.corr=matrix(NA,nr=n.vit,nc=max(n.obs))
-
-window=18
-for(j in 1:n.vit){
-    d.tmp=d[d$id==individs[j],]
-    for(i in (1+window):dim(d.tmp)[1]){
-        absangle.dist.corr[j,i]=corr(cbind(d.tmp$abs.angle[(i-window):i],d.tmp$dist[i-window:i]))
-    }    
-}
-absangle.dist.corr=absangle.dist.corr[,(window+2):dim(absangle.dist.corr)[2]]
-
-
-par(mfrow=c(4,3))
-for(i in 1:n.vit){
-    plot(absangle.dist.corr[i,])
-    abline(v=head(vit.records[[i]],1),col="darkred",lwd=2)
-    abline(v=tail(vit.records[[i]],1),col="darkred",lwd=2)
-}
-
-head(t(angle.dist.corr))
-
-which(angle.dist.corr==apply(angle.dist.corr,1,min,na.rm=TRUE),arr.ind = TRUE)
-which(absangle.dist.corr==apply(absangle.dist.corr,1,min,na.rm=TRUE),arr.ind = TRUE)
-
-
-
-
 ###
 ###
 ###
-
-plot(loess(c(angle.dist.corr)~c(julian.out)))
-
 
 apply(angle.dist.corr,2,sd,na.rm=TRUE)
 
 sd(angle.dist.corr,na.rm=TRUE)
-par(mfrow=c(4,3))
+par(mfrow=c(1,1))
 change.out=list(rep(list(),n.vit))
 birth.pred.indx=c()
 birth.pred=c()
@@ -342,34 +377,37 @@ for(i in 1:n.vit){
     change.out[[i]]=cpt.var(angle.dist.corr[i,!is.na(angle.dist.corr[i,])])
     plot(change.out[[i]])
     abline(v=head(vit.records[[i]],1),col="darkblue")
-    abline(v=tail(vit.records[[i]],1),col="darkblue")    
+    abline(v=tail(vit.records[[i]],1),col="darkblue")
     birth.pred.indx[i]=cpts(change.out[[i]])
-    birth.pred[i]=d$julian[d$id==individs[i]][birth.pred.indx[i]]
+    birth.pred[i]=d$julian[d$lowtag==individs[i]][birth.pred.indx[i]]
 }
 
+# birth.pred.indx
+# birth.pred
+# par(mfrow=c(1,1))
+# plot(d$julian)
+# max(d$julian)
+# 
+# min(d$julian)
+# min(d$date_time_gmt)
+# dates_min=list()
+# dates_julian_min=c()
+# for(i in 1:n.vit){
+#     dates_min[i]=as.character(min(d$date_time_local[d$lowtag==individs[i]]))
+#     dates_julian_min[i]=min(d$julian[d$lowtag==individs[i]])
+#     }
+# 
+# dates_min
+# dates_julian_min
+# 
+# predict.out=as.data.frame(cbind(individs,birth.pred,dates_julian_min),stringsAsFactors = FALSE)
+# 
+# save(predict.out,file="predict.out.Rdata")
+# 
 
 
 
 
-birth.pred.indx
-birth.pred
-par(mfrow=c(1,1))
-plot(d$julian)
-max(d$julian)
 
-min(d$julian)
-min(d$date_time_gmt)
-dates_min=list()
-dates_julian_min=c()
-for(i in 1:n.vit){
-    dates_min[i]=as.character(min(d$date_time_local[d$id==individs[i]]))
-    dates_julian_min[i]=min(d$julian[d$id==individs[i]])
-    }
 
-dates_min
-dates_julian_min
-
-predict.out=as.data.frame(cbind(individs,birth.pred,dates_julian_min),stringsAsFactors = FALSE)
-
-save(predict.out,file="predict.out.Rdata")
 
