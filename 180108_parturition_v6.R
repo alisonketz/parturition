@@ -30,32 +30,57 @@ library(readr)
 
 
 
-setwd("~/Documents/Parturition/180108_parturition")
+# setwd("~/Documents/Parturition/180108_parturition")
+
+
+###
+### Load VIT data
+###
+###
+### For running on windows machine
+###
+
+library(RODBC)
+setwd("F:/Parturition/180108_parturition")
+
+myconn=odbcConnectAccess('C:/Users/aketz/Documents/Data/SWDPPdeerDB.MDB')
+d.vit <- sqlFetch(myconn, "VIT")
+close(myconn)
 
 
 ###
 ### Load VIT data
 ###
 
-d.vit=mdb.get('~/Documents/Data/SWDPPdeerDB.MDB',tables= "VIT")
+
+# d.vit=mdb.get('~/Documents/Data/SWDPPdeerDB.MDB',tables= "VIT")
 names(d.vit)=tolower(gsub('[[:punct:]]',"",names(d.vit)))
-names(d.vit)[10]="lowtag"
+names(d.vit)=gsub(" ", "",names(d.vit), fixed = TRUE)
+names(d.vit)[1]="lowtag"
+
+
+
 d.vit$datedropped=as.character(d.vit$datedropped)
-d.vit$juliandropped=yday(mdy_hms(d.vit$datedropped))
-head(d.vit)
+d.vit$juliandropped=yday(ymd(d.vit$datedropped))
 d.vit$datefawnfound=as.character(d.vit$datefawnfound)
-d.vit$julianfawnfound=yday(mdy_hms(d.vit$datefawnfound))
+d.vit$julianfawnfound=yday(ymd(d.vit$datefawnfound))
 
 n.vit=length(d.vit$lowtag)
-
-
-d.vit$juliandropped
 
 #reorder vit data by lowtag/lowtag
 d.vit=d.vit[order(d.vit$lowtag),]
 
 #extract the individual ids
 individs=d.vit$lowtag
+
+
+#manipulate the julian day for the doe 6865 with best guess based on movement rates
+
+d.vit$juliandropped[9] = 147
+
+#par(mfrow=c(1,1))
+#plot(d$julian[d$lowtag==6865],d$distance[d$lowtag==6865])
+
 ###
 ### increased fixes parturition window
 ###
@@ -63,14 +88,15 @@ individs=d.vit$lowtag
 start=yday(mdy("05/05/2017")) # May 1 beginning of parturitionn period
 end=yday(mdy("07/07/2017")) #end of parturition period
 
+
 ###
 ### Load data GPS location data
 ###
 
 d = matrix(NA,nr=1,nc=13)
-#for loop for reading in data, using vector of lowtag's from the vit dataset
+#for loop for reading in data, using vector of id's from the vit dataset
 for(i in 1:n.vit){
-    d.temp = read.table(paste("/home/aketz/Documents/Data/GPS_locations_ind/",d.vit$lowtag[i],".csv",sep=""),sep=",",header=TRUE,stringsAsFactors = FALSE)
+    d.temp = read.csv(paste("F:/GPS_locations_ind/",d.vit$lowtag[i],".csv",sep=""),sep=",",header=TRUE,stringsAsFactors = FALSE, encoding = "UTF-8")
     d.temp$lowtag = d.vit$lowtag[i]
     names(d.temp)=tolower(names(d.temp))
     d=rbind(d,as.matrix(d.temp))
@@ -89,6 +115,7 @@ for(j in class.indx){
 
 d$lowtag=as.factor(d$lowtag)
 
+head(d)
 
 ###
 ### double checking for duplicate locations
@@ -160,18 +187,12 @@ d$missing=0
 for( i in 1:dim(d)[1]){
     if(is.na(d$longitude[i]))d$missing[i]=1
 }
-head(d$latitude)
-head(d$longitude)
-head(d$missing)
-sum(d$missing)
-
-dim(d)
 
 miss.per.ind=c()
 for(j in 1:n.vit){
     miss.per.ind=c(miss.per.ind,sum(d$missing[d$lowtag==individs[j]]))
 }
-
+miss.per.ind
 
 d=d[-c(1:3),]
 
@@ -196,7 +217,6 @@ dist.out = distHaversine(d[,6:5])
 d=d[-1,]
 d$distance = dist.out
 
-
 d=d[-c(dim(d)[1]-1,dim(d)[1]),]#remove last 2 entries which are NA and NaN
 
 tail(d)
@@ -206,7 +226,7 @@ tail(d)
 ### Projections! 
 ###
 
-# points from scratch
+# setup coordinates
 coords = cbind(d$longitude, d$latitude)
 sp = SpatialPoints(coords)
 
@@ -265,13 +285,13 @@ d$dist.traj=dfdeer$dist
 d$R2n=dfdeer$R2n
 d$dx=dfdeer$dx
 d$dy=dfdeer$dy
+
 d$dt=dfdeer$dt
 
 
-#: the squared distance between the first relocation of the trajectory
-# and the current relocation is often used to test some movements models
-# (e.g. the correlated random walk, see the seminal paper of Kareiva and
-# Shigesada, 1983).
+###
+### Parameters returned by adehabitatLT object model. 
+###
 
 # • dx, dy, dt: these parameters measured at relocation i describe the increments
 # of the x and y directions and time between the relocations i and
@@ -290,6 +310,11 @@ d$dt=dfdeer$dt
 # i and i + 1 (often called “turning angle”). It is often used together with
 # the parameter dist to fit movement models (e.g. Root and Kareiva 1984,
 #                                            Marsh and Jones 1988);
+
+# • R2n: the squared distance between the first relocation of the trajectory
+# and the current relocation is often used to test some movements models
+# (e.g. the correlated random walk, see the seminal paper of Kareiva and
+# Shigesada, 1983).
 
 ###
 ### remove the initial index of each individual 
@@ -419,8 +444,8 @@ for(j in 1:n.vit){
         corr.angle.alt[i,j]=corr(cbind(d.tmp$rel.angle[(i-w):i],d.tmp$altitude[(i-w):i]))
         corr.bear.alt[i,j]=corr(cbind(d.tmp$bearing[(i-w):i],d.tmp$altitude[(i-w):i]))
         
-        
-    }
+                
+        }
 }
 # angle.dist.corr=angle.dist.corr[,(w+2):dim(angle.dist.corr)[1]]
 # vit.drop=vit.drop[,(w+2):dim(vit.drop)[2]]
@@ -500,7 +525,7 @@ for(j in 1:n.vit){
     plot(julian.out[1:(length(julian.out[,j])-7),j],sig.distance[,j],main=individs[j])
     abline(v=d.vit$juliandropped[j],col=2)
     abline(v=julian.out[which(sig.distance[,j]==min(sig.distance[1:200,j],na.rm=TRUE)),j])
-}
+    }
 
 
 
@@ -741,7 +766,7 @@ length(c(t(corr.dist.angle)))
 # df.pop[,24]=c(t(corr.angle.alt))
 # df.pop[,25]=c(t(corr.bear.alt))
 
-
+                  
 ###
 ### naiveBayes across windows
 ###
@@ -750,7 +775,7 @@ length(c(t(corr.dist.angle)))
 # julian.out
 # 
 # #min/max features
-
+ 
 # #mean features
 # mu.distance
 # mu.turn.angle
@@ -821,17 +846,17 @@ out.nb=rep(list(),window)
 pred.nb=rep(list(),window)
 fitit=c()
 for(w in 1:window){
-    train=data.frame(cbind(mu.distance[w,],mu.turn.angle[w,]))
-    test=data.frame(cbind(vit.drop[w,],mu.distance[w,],mu.turn.angle[w,]))
-    names(train)=names(test)=c('mu_distance','mu_turn_angle')
-    svm(x=train,y=vit.drop[w,],data=train)
-    
-    out.nb[[w]] = naiveBayes(train,as.factor(vit.drop[w,-1]))
-    pred.nb[[w]]=predict(out.nb[[w]],list(test))
-    fitit=c(fitit,w)
-    
-    svm()
-}
+        train=data.frame(cbind(mu.distance[w,],mu.turn.angle[w,]))
+        test=data.frame(cbind(vit.drop[w,],mu.distance[w,],mu.turn.angle[w,]))
+        names(train)=names(test)=c('mu_distance','mu_turn_angle')
+        svm(x=train,y=vit.drop[w,],data=train)
+        
+        out.nb[[w]] = naiveBayes(train,as.factor(vit.drop[w,-1]))
+        pred.nb[[w]]=predict(out.nb[[w]],list(test))
+        fitit=c(fitit,w)
+        
+        svm()
+    }
 
 }
 fitit
