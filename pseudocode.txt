@@ -1,0 +1,14 @@
+
+
+loop over individuals, leaving one out
+
+    loop over covariates for epsilon search
+        
+        loop over epsilon values
+            fit model
+            calculate eval = recall
+        find best episilon for each covariate--->
+    fit test anomalyDetect given max of evaluation from episolon loop
+    evaluate recall
+    
+    
