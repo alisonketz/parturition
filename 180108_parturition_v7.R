@@ -29,6 +29,10 @@ library(spatstat)#for "duplicate" function
 library(readr)
 library(caret)
 library(mvtnorm)
+library(raster)
+library(dplyr)
+library(randomForest)
+library(randomForestExplainer)
 
 
 setwd("~/Documents/Parturition/180108_parturition")
@@ -170,15 +174,11 @@ d$date_time_gmt=as.POSIXct(strptime(d$date_time_gmt,format="%m-%d-%Y %H:%M:%S"),
 
 #Create time lag between successive locations to censor data if needed.
 time.diff <- diff(d$date_time_local)
-time.diff
 d=d[-1,]
 d$timediff <-round(as.numeric(abs(time.diff)))
 rm=which(d$timediff>10)
 d=d[-rm,]
-
 names(d)[1]="devname"
-head(d)
-
 
 ###
 ### Dealing with missing data
@@ -198,9 +198,7 @@ for(j in 1:n.vit){
     miss.per.ind=c(miss.per.ind,sum(d$missing[d$lowtag==individs[j]]))
 }
 miss.per.ind
-
 d=d[-c(1:3),]
-
 for(i in 2:(dim(d)[1]-1)){
     if(is.na(d$longitude[i])){
         a=i-1
@@ -211,7 +209,6 @@ for(i in 2:(dim(d)[1]-1)){
     }
 }
 
-
 ### 
 ### Without projection of datum into R, can use geospatial package to calculate distance and bearings
 ###
@@ -221,11 +218,7 @@ d$bearing=bearing.out
 dist.out = distHaversine(d[,6:5])
 d=d[-1,]
 d$distance = dist.out
-
 d=d[-c(dim(d)[1]-1,dim(d)[1]),]#remove last 2 entries which are NA and NaN
-
-tail(d)
-
 
 ###
 ### Projections! 
@@ -245,7 +238,6 @@ proj4string(spdf) = CRS(latlong)
 
 d.sp.proj = spTransform(spdf, CRS("+proj=tmerc +lat_0=0 +lon_0=-90 +k=0.9996 +x_0=520000
                                   +y_0=-4480000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"))
-
 d=data.frame(d.sp.proj)
 
 #20 and 21 are the coordinates in UTMs x y
@@ -267,35 +259,23 @@ for(i in 1:n.vit){
 }
 ###
 ### The last movements of individ1 is crazy
-### must remove those points
-plot(d.traj[1])
-
-
-
-
-hist(d.traj[1], "dist", freq = TRUE)
-hist(d.traj[2], "dist", freq = TRUE)
-
-plotltr(d.traj[1], "dt/3600/24")
+### removed those points up above
+# plot(d.traj[1])
 
 #converts traj object to data frame
 dfdeer <- ld(d.traj)
 dfdeer$id=as.character(dfdeer$id)
 dfdeer=rbind(rep(NA,dim(dfdeer)[2]),dfdeer)
-
 dfdeer=dfdeer[-dim(dfdeer)[1],]
-
 d$rel.angle=dfdeer$rel.angle
 d$dist.traj=dfdeer$dist
 d$R2n=dfdeer$R2n
 d$dx=dfdeer$dx
 d$dy=dfdeer$dy
-
 d$dt=dfdeer$dt
 
-
 ###
-### Parameters returned by adehabitatLT object model. 
+### Description of parameters returned by adehabitatLT object model. 
 ###
 
 # • dx, dy, dt: these parameters measured at relocation i describe the increments
@@ -321,15 +301,110 @@ d$dt=dfdeer$dt
 # (e.g. the correlated random walk, see the seminal paper of Kareiva and
 # Shigesada, 1983).
 
+
+########################################################################################################
 ###
 ### remove the initial index of each individual 
 ### because it makes no sense to calculate distances 
 ### between the locations of the individuals
 ###
+#######################################################################################################
 
 remove.indx=which(is.na(d$dist.traj))
 d[remove.indx,]
 d=d[-remove.indx,]
+
+#######################################################################################################
+###
+### Adding Landcover data
+###
+#######################################################################################################3
+
+### Convert primary GPS location data back to spatial points data frame
+
+# setup coordinates
+coords = cbind(d$longitude, d$latitude)
+sp = SpatialPoints(coords)
+
+# make spatial data frame
+# spdf = SpatialPointsDataFrame(coords, d)
+spdf = SpatialPointsDataFrame(sp, d)
+
+# EPSG strings
+latlong = "+init=epsg:4326"
+proj4string(spdf) = CRS(latlong)
+d.sp.proj = spTransform(spdf, CRS("+proj=tmerc +lat_0=0 +lon_0=-90 +k=0.9996 +x_0=520000
+                                  +y_0=-4480000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"))
+
+# extent of points data
+extent.d.sp=extent(d.sp.proj)
+d.sp.crs = crs(d.sp.proj)
+
+###
+### Import NLCD
+###
+
+#load cover data
+nlcd = raster("~/Documents/Data/nlcd_2011_landcover_2011_edition_2014_10_10/nlcd_2011_landcover_2011_edition_2014_10_10.img")
+
+# convert lat/lon to appropriate projection
+crs_args = nlcd@crs@projargs
+d.sp.proj.nlcd=spTransform(d.sp.proj,crs_args)
+
+#clip the NLCD to the d.sp.proj size + small 1% buffer
+b = bbox(d.sp.proj.nlcd)
+b[,1]=b[,1]*.99
+b[,2]=b[,2]*1.01
+nlcd.crop=crop(nlcd,b)
+
+#plot of nlcd with movements of deer on top
+par(mfrow=c(1,1))
+plot(nlcd.crop)
+plot(d.sp.proj.nlcd,add=T)    
+
+#extract land cover data for each point, given buffer size
+landcover = extract(nlcd.crop, d.sp.proj.nlcd)
+
+# generate land cover number to name conversions
+num.codes = unique(unlist(landcover))
+cover.names = nlcd@data@attributes[[1]]$NLCD.2011.Land.Cover.Class[num.codes + 1]
+levels(cover.names)[1] = NA 
+conversions = data.frame(num.codes, cover.names)
+conversions = na.omit(conversions)
+conversions = conversions[order(conversions$num.codes),]
+conversions
+
+# # summarize each site's data by proportion of each cover type
+summ = lapply(landcover, function(x){prop.table(table(x))})
+
+# convert to data frame
+nlcd.points = data.frame(d.sp.proj.nlcd,cover2 = names(unlist(summ)))
+
+# create cover name column
+nlcd.points$cover = nlcd.points$cover2
+levels(nlcd.points$cover) = conversions$cover.names
+table(nlcd.points$cover)
+coords=coordinates(nlcd.points$longitude,nlcd.points$latitude)
+
+#convert and project nlcd.points back to spatial points data frame, and then back to just data frame
+coords = cbind(nlcd.points$longitude, nlcd.points$latitude)
+sp = SpatialPoints(coords)
+
+# make spatial data frame
+# spdf = SpatialPointsDataFrame(coords, d)
+spdf = SpatialPointsDataFrame(sp, nlcd.points)
+
+# EPSG strings
+latlong = "+init=epsg:4326"
+proj4string(spdf) = CRS(latlong)
+d.nlcd = spTransform(spdf, CRS("+proj=tmerc +lat_0=0 +lon_0=-90 +k=0.9996 +x_0=520000
+                                  +y_0=-4480000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"))
+d=data.frame(d.nlcd)
+rm.columns=c(29:32,34:36)
+d=d[,-rm.columns]
+
+head(d)
+levels(d$cover)
 
 ###
 ###EDA plots
@@ -505,7 +580,6 @@ for(j in 1:n.vit){
 }
 vit.records
 
-
 par(mfrow=c(3,2))
 for(j in 1:n.vit){
     plot(julian.out[,j],corr.dist.angle[,j],main=individs[j])
@@ -517,8 +591,6 @@ for(j in 1:n.vit){
     abline(v=d.vit$juliandropped[j],col=2)
     abline(v=julian.out[which(sig.distance[,j]==min(sig.distance[1:200,j],na.rm=TRUE)),j])
 }
-
-
 
 ###
 ### Plots min/max features over window
@@ -662,9 +734,7 @@ d$scalestep = scalestep
 d$scaleR2n=scaleR2n
 d$logscalestep=logstepscale
 
-
-
-names(d)[30:37]
+names(d)[32:39]
 par(mfrow=c(2,2))
 for(j in 30:37){
     hist(d[,j],breaks=50,main=names(d)[j])
@@ -675,7 +745,6 @@ for(j in 30:37){
 
 par(mfrow=c(3,1))
 for(j in 1:n.vit){
-    
     hist(log(d$step[d$lowtag==individs[j]]),breaks=50,main=individs[j])
     plot(density(log(d$step[d$lowtag==individs[j]])),main=individs[j])
     plot(d$julian[d$lowtag==individs[j]],log(d$step[d$lowtag==individs[j]]))
@@ -686,7 +755,6 @@ for(j in 1:n.vit){
 ###
 ### Paturition window
 ###
-
 
 part.window=yday("2017-05-06")
 
@@ -703,7 +771,7 @@ possible.hits
 
 ##############################################################################################
 ###
-### Expandning Anomaly Detection function to deal 
+### Expanding Anomaly Detection function to deal 
 ### with multiple individuals as well as single
 ###
 ##############################################################################################
@@ -714,18 +782,18 @@ source("anomalyDetectUniv.R")
 source("anomalyDetect.R")
 source("evaluate_ad.R")
 
-out.test=anomalyDetect(n.vit=12,part.window=126,id=individs,d=d,eps=.12,covs.indx=31:37)
+out.test=anomalyDetect(n.vit=12,part.window=126,id=individs,d=d,eps=.12,covs.indx=32:39)
     
-out.ind.5732=anomalyDetect(1,part.window=pw,id=c(5732),d[d$lowtag==5732,],eps=.12,31:37)
-out.ind.5004=anomalyDetect(1,part.window=126,id=c(5004),d[d$lowtag==5004,],eps=.12,31:37)
+out.ind.5732=anomalyDetect(1,part.window=pw,id=c(5732),d[d$lowtag==5732,],eps=.12,32:39)
+out.ind.5004=anomalyDetect(1,part.window=126,id=c(5004),d[d$lowtag==5004,],eps=.12,32:39)
 evaluate.time.pop(alarm=out.ind.5732$alarm,possible.hits=possible.hits[5],n.vit=1,vitdropday = d.vit$juliandropped[5])
 evaluate.time.pop(alarm=out.ind.5004$alarm,possible.hits=possible.hits[1],n.vit=1,vitdropday = d.vit$juliandropped[1])
 
-covs.indx=31:37
+covs.indx=32:39
 epsnum=15
 covsnum=length(covs.indx)
 loo.eval=rep(list(),3*n.vit)
-ci=31:37
+ci=32:39
 starting=Sys.time()
 for(m in 1:3){
     for(j in 1:n.vit){
@@ -767,6 +835,10 @@ check.TP=rep(NA,3*n.vit)
 check.FP=rep(NA,3*n.vit)
 check.FN=rep(NA,3*n.vit)
 
+loo.eval[[25:36]]
+
+loo.eval
+length(loo.eval[[25]])
 
 for(j in 1:(3*n.vit)){
     check.prec[j]=loo.eval[[j]]$out.prec
@@ -781,194 +853,246 @@ for(j in 1:(3*n.vit)){
 par(mfrow=c(3,1))
 test.crit=c(rep(1,n.vit),rep(2,n.vit),rep(3,n.vit))
 test.ind=rep(1:n.vit,3)
+pdf("Anomaly_eval_1.pdf")
 plot(test.ind,check.prec,col=test.crit,main="Precision",ylab="Precision",xlab="Individual")
-legend(x=1.5,y=.21,fill=c(1:3),legend=c("Precision","Recall","F1"))
+legend(x=5,y=.23,fill=c(1:3),legend=c("Precision","Recall","F1"))
 plot(test.ind,check.recall,col=test.crit,main="Recall",ylab="Recall",xlab="Individual")
 plot(test.ind,check.F1,col=test.crit,main="F1",ylab="F1",xlab="Individual")
+dev.off()
+pdf("Anomaly_eval_1.pdf")
 plot(test.ind,check.TP,col=test.crit,main="TP",ylab="TP",xlab="Individual")
 plot(test.ind,check.FP,col=test.crit,main="FP",ylab="FP",xlab="Individual")
 plot(test.ind,check.FN,col=test.crit,main="FN",ylab="FN",xlab="Individual")
 legend("topright",fill=c(1:3),legend=c("Precision","Recall","F1"))
+dev.off()
+
 
 save.image("anomaly.Rdata")
 
 par(mfrow=c(3,1))
-plot(check.prec)
-plot(check.recall)
-plot(check.F1)
 
-##############################################################################################
-###
-### Multivariate Anomaly Detection Using Episolon = .12
-### Changing predictors
-###
-##############################################################################################
+pdf("checks/Precision_check.pdf")
+plot(check.prec,main="Precision when different criteria")
+abline(v=c(12.5,24.5))
+text(5,.25,"Precision")
+text(18,.25,"Recall")
+text(28,.25,"F1")
+dev.off()
 
-#possible variables are 31:37
-variables_to_fit_Mat = expand.grid(c(TRUE,FALSE), c(TRUE,FALSE),
-                                   c(TRUE,FALSE), c(TRUE,FALSE),
-                                   c(TRUE,FALSE), c(TRUE,FALSE),
-                                   c(TRUE,FALSE))
-variables_to_fit_Mat = variables_to_fit_Mat[-(dim(variables_to_fit_Mat)[1]),]# removes pointless line with no predictors
-names(variables_to_fit_Mat) = names(d)[31:37]
+pdf("checks/Recall_check.pdf")
+plot(check.recall,main="Recall when different criteria")
+abline(v=c(12.5,24.5))
+text(5,.8,"Precision")
+text(18,.8,"Recall")
+text(28,.8,"F1")
+dev.off()
 
-num.models = dim(variables_to_fit_Mat)[1]
-fit.all = matrix(NA,nr = num.models,nc = 6)
-names(fit.all) = c("Precision","Recall","F1","tp","fp","fn")
+pdf("checks/F1_check.pdf")
+plot(check.F1,main="F1 when different criteria")
+abline(v=c(12.5,24.5))
+text(5,.25,"Precision")
+text(18,.25,"Recall")
+text(28,.25,"F1")
+dev.off()
 
-starting=Sys.time()
-for(i in 1:num.models){
-    test = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.12,covs.indx=(30+which(variables_to_fit_Mat[i,]==TRUE)))
-    evaluated=evaluate.time.pop(alarm=test$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
-    fit.all[i,1] = evaluated$out.prec
-    fit.all[i,2] = evaluated$out.recall
-    fit.all[i,3] = evaluated$out.F1
-    fit.all[i,4] = evaluated$tp.pop
-    fit.all[i,5] = evaluated$fp.pop
-    fit.all[i,6] = evaluated$fn.pop
-}
-ending=Sys.time()
-ending-starting
+pdf("checks/TP_check.pdf")
+plot(check.TP,main="TP when diff criteria")
+abline(v=c(12.5,24.5))
+text(5,10,"Precision")
+text(18,10,"Recall")
+text(28,10,"F1")
+dev.off()
 
-par(mfrow=c(3,2))
-for(i in 1:6){
-    plot(fit.all[,i])
-}
-plot(fit.all[,1])
+pdf("checks/FP_check.pdf")
+plot(check.FP,main="FP")
+abline(v=c(12.5,24.5))
+text(5,120,"Precision")
+text(18,120,"Recall")
+text(28,120,"F1")
+dev.off()
 
-checkup=apply(fit.all,2,function(x){which(x==max(x))})
-checkup[[6]] = which(fit.all[,6]==min(fit.all[,6]))
-
-
-variables_to_fit_Mat[checkup[[1]],]
-variables_to_fit_Mat[checkup[[2]],]
-variables_to_fit_Mat[checkup[[3]],]
-variables_to_fit_Mat[checkup[[4]],]
-variables_to_fit_Mat[checkup[[5]],]
-variables_to_fit_Mat[checkup[[6]],]
-
-#finds the 5 biggest values, want to minimize FP/FN rates
-checkup=apply(fit.all,2,function(x){tail(order(x),5)})
-
-checkup[,5] = head(order(fit.all[,5]),5)
-checkup[,6] =  head(order(fit.all[,6]),5)
+pdf("checks/FN_check.pdf")
+plot(check.FN,main="FN")
+abline(v=c(12.5,24.5))
+text(5,11,"Precision")
+text(18,11,"Recall")
+text(28,11,"F1")
+dev.off()
 
 
-ranking=rbind(apply(variables_to_fit_Mat[checkup[,1],],2,sum),apply(variables_to_fit_Mat[checkup[,2],],2,sum),
-              apply(variables_to_fit_Mat[checkup[,3],],2,sum),apply(variables_to_fit_Mat[checkup[,4],],2,sum),
-              apply(variables_to_fit_Mat[checkup[,5],],2,sum),apply(variables_to_fit_Mat[checkup[,6],],2,sum)
-)
-
-apply(ranking,2,sum)
-
-ranking2=rbind(apply(variables_to_fit_Mat[checkup[,1],],2,sum),apply(variables_to_fit_Mat[checkup[,2],],2,sum),
-               apply(variables_to_fit_Mat[checkup[,3],],2,sum)
-)
-
-apply(ranking2,2,sum)
-
-names(variables_to_fit_Mat)[c(TRUE,TRUE,TRUE,FALSE,TRUE,FALSE,FALSE)] #final model?
-final.out = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.10,covs.indx=c(31,32,33,35))
-evaluated=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
-final.out
-evaluated
-
-
-par(mfrow=c(4,1))
-for(j in 1:n.vit){
-    # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    # points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$logstep,col=2)
-    # abline(v=d.vit$juliandropped[j])
-    plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scalealt,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaletemp,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaleangle[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaleangle,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaledx,col=2)
-    abline(v=d.vit$juliandropped[j])
-}
-
-
-names(variables_to_fit_Mat) #final model?
-final.out2 = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.10,covs.indx=c(31,32,35,37))
-evaluated2=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
-final.out2
-evaluated
-evaluated2
-
-
-par(mfrow=c(4,1))
-for(j in 1:n.vit){
-    # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    # points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logstep,col=2)
-    # abline(v=d.vit$juliandropped[j])
-    plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scalealt,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaletemp,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaledx,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$logscalestep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logscalestep,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-}
-
-###
-### If only use Recall/sensitivity as criteria
-###
-
-apply(variables_to_fit_Mat[checkup[,2],],2,sum)
-par(mfrow=c(1,1))
-plot(fit.all[,2])
-points(checkup[,2],fit.all[checkup[,2],2],col=2)
-variables_to_fit_Mat[checkup[,2],]#scaletemp,scaleanlge,scaledx
-
-#model3
-names(variables_to_fit_Mat)
-final.out3 = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.1,covs.indx=c(32,33,35))
-evaluated3=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
-evaluated
-evaluated3
-
-
-par(mfrow=c(4,1))
-for(j in 1:n.vit){
-    # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    # points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logstep,col=2)
-    # abline(v=d.vit$juliandropped[j])
-    plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scalealt,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaletemp,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaledx,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-    plot(d$julian[d$lowtag==individs[j]],d$logscalestep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
-    points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logscalestep,col=2)
-    abline(v=d.vit$juliandropped[j])
-    
-}
-
+# 
+# ##############################################################################################
+# ###
+# ### Multivariate Anomaly Detection Using Episolon = .12
+# ### Changing predictors
+# ###
+# ##############################################################################################
+# 
+# #possible variables are 31:37
+# variables_to_fit_Mat = expand.grid(c(TRUE,FALSE), c(TRUE,FALSE),
+#                                    c(TRUE,FALSE), c(TRUE,FALSE),
+#                                    c(TRUE,FALSE), c(TRUE,FALSE),
+#                                    c(TRUE,FALSE))
+# variables_to_fit_Mat = variables_to_fit_Mat[-(dim(variables_to_fit_Mat)[1]),]# removes pointless line with no predictors
+# names(variables_to_fit_Mat) = names(d)[31:37]
+# 
+# num.models = dim(variables_to_fit_Mat)[1]
+# fit.all = matrix(NA,nr = num.models,nc = 6)
+# names(fit.all) = c("Precision","Recall","F1","tp","fp","fn")
+# 
+# starting=Sys.time()
+# for(i in 1:num.models){
+#     test = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.12,covs.indx=(30+which(variables_to_fit_Mat[i,]==TRUE)))
+#     evaluated=evaluate.time.pop(alarm=test$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
+#     fit.all[i,1] = evaluated$out.prec
+#     fit.all[i,2] = evaluated$out.recall
+#     fit.all[i,3] = evaluated$out.F1
+#     fit.all[i,4] = evaluated$tp.pop
+#     fit.all[i,5] = evaluated$fp.pop
+#     fit.all[i,6] = evaluated$fn.pop
+# }
+# ending=Sys.time()
+# ending-starting
+# 
+# par(mfrow=c(3,2))
+# for(i in 1:6){
+#     plot(fit.all[,i])
+# }
+# plot(fit.all[,1])
+# 
+# checkup=apply(fit.all,2,function(x){which(x==max(x))})
+# checkup[[6]] = which(fit.all[,6]==min(fit.all[,6]))
+# 
+# 
+# variables_to_fit_Mat[checkup[[1]],]
+# variables_to_fit_Mat[checkup[[2]],]
+# variables_to_fit_Mat[checkup[[3]],]
+# variables_to_fit_Mat[checkup[[4]],]
+# variables_to_fit_Mat[checkup[[5]],]
+# variables_to_fit_Mat[checkup[[6]],]
+# 
+# #finds the 5 biggest values, want to minimize FP/FN rates
+# checkup=apply(fit.all,2,function(x){tail(order(x),5)})
+# 
+# checkup[,5] = head(order(fit.all[,5]),5)
+# checkup[,6] =  head(order(fit.all[,6]),5)
+# 
+# 
+# ranking=rbind(apply(variables_to_fit_Mat[checkup[,1],],2,sum),apply(variables_to_fit_Mat[checkup[,2],],2,sum),
+#               apply(variables_to_fit_Mat[checkup[,3],],2,sum),apply(variables_to_fit_Mat[checkup[,4],],2,sum),
+#               apply(variables_to_fit_Mat[checkup[,5],],2,sum),apply(variables_to_fit_Mat[checkup[,6],],2,sum)
+# )
+# 
+# apply(ranking,2,sum)
+# 
+# ranking2=rbind(apply(variables_to_fit_Mat[checkup[,1],],2,sum),apply(variables_to_fit_Mat[checkup[,2],],2,sum),
+#                apply(variables_to_fit_Mat[checkup[,3],],2,sum)
+# )
+# 
+# apply(ranking2,2,sum)
+# 
+# names(variables_to_fit_Mat)[c(TRUE,TRUE,TRUE,FALSE,TRUE,FALSE,FALSE)] #final model?
+# final.out = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.10,covs.indx=c(31,32,33,35))
+# evaluated=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
+# final.out
+# evaluated
+# 
+# 
+# par(mfrow=c(4,1))
+# for(j in 1:n.vit){
+#     # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     # points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$logstep,col=2)
+#     # abline(v=d.vit$juliandropped[j])
+#     plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scalealt,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaletemp,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaleangle[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaleangle,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out$alarm[[j]]$julian,final.out$alarm[[j]]$scaledx,col=2)
+#     abline(v=d.vit$juliandropped[j])
+# }
+# 
+# 
+# names(variables_to_fit_Mat) #final model?
+# final.out2 = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.10,covs.indx=c(31,32,35,37))
+# evaluated2=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
+# final.out2
+# evaluated
+# evaluated2
+# 
+# 
+# par(mfrow=c(4,1))
+# for(j in 1:n.vit){
+#     # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     # points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logstep,col=2)
+#     # abline(v=d.vit$juliandropped[j])
+#     plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scalealt,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaletemp,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaledx,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$logscalestep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logscalestep,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+# }
+# 
+# ###
+# ### If only use Recall/sensitivity as criteria
+# ###
+# 
+# apply(variables_to_fit_Mat[checkup[,2],],2,sum)
+# par(mfrow=c(1,1))
+# plot(fit.all[,2])
+# points(checkup[,2],fit.all[checkup[,2],2],col=2)
+# variables_to_fit_Mat[checkup[,2],]#scaletemp,scaleanlge,scaledx
+# 
+# #model3
+# names(variables_to_fit_Mat)
+# final.out3 = anomalyDetect(n.vit=12,part.window=part.window,id=individs,d,eps=.1,covs.indx=c(32,33,35))
+# evaluated3=evaluate.time.pop(alarm=final.out$alarm,possible.hits=possible.hits,n.vit=12,vitdropday = d.vit$juliandropped)
+# evaluated
+# evaluated3
+# 
+# 
+# par(mfrow=c(4,1))
+# for(j in 1:n.vit){
+#     # plot(d$julian[d$lowtag==individs[j]],d$logstep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     # points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logstep,col=2)
+#     # abline(v=d.vit$juliandropped[j])
+#     plot(d$julian[d$lowtag==individs[j]],d$scalealt[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scalealt,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaletemp[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaletemp,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$scaledx[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$scaledx,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+#     plot(d$julian[d$lowtag==individs[j]],d$logscalestep[d$lowtag==individs[j]],main=d.vit$lowtag[j])
+#     points(final.out2$alarm[[j]]$julian,final.out2$alarm[[j]]$logscalestep,col=2)
+#     abline(v=d.vit$juliandropped[j])
+#     
+# }
+# 
 
 
 #####################################################################################################
@@ -1001,9 +1125,112 @@ for(j in 1:n.vit){
 ###
 ###
 #####################################################################################################
+# #width of the window from above
+# #relative angle
+# vit.drop[i,j]=d.tmp$dropped[i]
+# julian.out[i,j]=d.tmp$julian[i]
+# 
+# #min/max features
+# min.distance[i,j]=min(d.tmp$distance[(i-w):i])
+# max.angle[i,j]=max(d.tmp$rel.angle[(i-w):i])
+# 
+# #mean features
+# mu.distance[i,j]=mean(d.tmp$distance[(i-w):i])
+# mu.turn.angle[i,j]=mean(d.tmp$rel.angle[(i-w):i])
+# mu.bearing[i,j]=mean(d.tmp$bearing[(i-w):i])
+# mu.r2n[i,j]=mean(d.tmp$R2n[(i-w):i])
+# mu.altitude[i,j]=mean(d.tmp$altitude[(i-w):i])
+# mu.temp[i,j]=mean(d.tmp$temp[(i-w):i])
+# mu.dx[i,j]=mean(d.tmp$dx[(i-w):i])
+# mu.dy[i,j]=mean(d.tmp$dy[(i-w):i])
+# 
+# #variation features
+# sig.distance[i,j]=sd(d.tmp$distance[(i-w):i])
+# sig.turn.angle[i,j]=sd(d.tmp$rel.angle[(i-w):i])
+# sig.bearing[i,j]=sd(d.tmp$bearing[(i-w):i])
+# sig.r2n[i,j]=sd(d.tmp$R2n[(i-w):i])
+# sig.altitude[i,j]=sd(d.tmp$altitude[(i-w):i])
+# sig.temp[i,j]=sd(d.tmp$temp[(i-w):i])
+# sig.dx[i,j]=sd(d.tmp$dx[(i-w):i])
+# sig.dy[i,j]=sd(d.tmp$dy[(i-w):i])
+# 
+# #correlation features
+# corr.dist.angle[i,j]=corr(cbind(d.tmp$distance[(i-w):i],d.tmp$rel.angle[(i-w):i]))
+# corr.dist.bear[i,j]=corr(cbind(d.tmp$distance[(i-w):i],d.tmp$bearing[(i-w):i]))
+# corr.dist.alt[i,j]=corr(cbind(d.tmp$distance[(i-w):i],d.tmp$altitude[(i-w):i]))
+# corr.angle.bear[i,j]=corr(cbind(d.tmp$rel.angle[(i-w):i],d.tmp$bearing[(i-w):i]))
+# corr.angle.alt[i,j]=corr(cbind(d.tmp$rel.angle[(i-w):i],d.tmp$altitude[(i-w):i]))
+# corr.bear.alt[i,j]=corr(cbind(d.tmp$bearing[(i-w):i],d.tmp$altitude[(i-w):i]))
+n.avg = n.obs-w-1
+dim(julian.out)
+dim(mu.distance)
+
+par(mfrow=c(2,1))
+acf(mu.distance[1:n.avg[1],1])
+plot(mu.distance[1:n.avg[1],1])
+plot(julian.out[1:n.avg[1],1],mu.distance[1:n.avg[1],1])
+abline(v=d.vit$juliandropped[1],col=2)
 
 
-mu.dist.acf=apply(mu.distance[1,1:n.obs[1]],acf,na.rm=TRUE)
+#make a population level data frame to fit random forest
+df.ma = data.frame(cbind(c(vit.drop),c(julian.out),
+                         c(min.distance),
+                         c(max.angle),
+                         c(mu.distance),
+                         c(mu.turn.angle),
+                         c(mu.altitude),
+                         c(mu.temp),
+                         c(mu.dx),
+                         c(mu.dy),
+                         c(sig.distance),
+                         c(sig.turn.angle),
+                         c(sig.altitude),
+                         c(sig.temp),
+                         c(sig.dx),
+                         c(sig.dy)),stringsAsFactors = FALSE)
+remove =which(is.na(df.ma),arr.ind = T)[,1]
+df.ma = df.ma[-remove,]
+
+names(df.ma) = c("vitdrop","julian.out","min.distance","max.angle","mu.distance","mu.turn.angle","mu.altitude","mu.temp",
+                 "mu.dx","mu.dy","sig.distance","sig.turn.angle","sig.altitude","sig.temp","sig.dx","sig.dy")
+for(h in 2:dim(df.ma)[2]){
+    class(df.ma[,h])="numeric"
+}
+df.ma$vitdrop = as.factor(df.ma$vitdrop)
+
+fit.rf <- randomForest(vitdrop ~ max.angle + mu.distance + mu.turn.angle + mu.altitude + mu.temp + mu.dx +
+                        mu.dy + sig.distance + sig.turn.angle + sig.altitude + sig.temp + sig.dx +sig.dy,
+                    data=df.ma, 
+                    localImp=TRUE, 
+                    ntree=501)
+fit.rf
+summary(fit.rf)
+plot(fit.rf)
+varImpPlot(fit.rf)
+length(mu.distance[1,])
+class(mu.distance)
+n.obs
+
+min_depth_frame = min_depth_distribution(fit.rf)
+plot_min_depth_distribution(min_depth_frame)
+importance_frame = measure_importance(fit.rf)
+importance_frame
+plot_multi_way_importance(importance_frame, size_measure = "no_of_nodes")
+
+plot_multi_way_importance(importance_frame, size_measure = "p_value")
+
+plot_importance_ggpairs(importance_frame)
+plot_importance_rankings(importance_frame)
+vars = important_variables(importance_frame, k = 5, measures = c("mean_min_depth", "no_of_trees"))
+interactions_frame <- min_depth_interactions(fit.rf, vars)
+plot_min_depth_interactions(interactions_frame)
+interactions_frame <- min_depth_interactions(fit.rf, vars, mean_sample = "relevant_trees", uncond_mean_sample = "relevant_trees")
+plot_min_depth_interactions(interactions_frame)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, echo = FALSE)
+
+explain_forest(fit.rf, interactions = TRUE, data = df.ma)
+
+mu.dist.acf=apply(mu.distance[1,1:n.avg[1]],acf,na.rm=TRUE)
 
 
 which(is.na(mu.distance),arr.ind = T)
@@ -1202,7 +1429,7 @@ for(w in 1:window){
     svm()
 }
 
-}
+
 fitit
 out.nb    
 naiveBayes(train,as.factor(vit.drop[w,-1]))
@@ -1212,8 +1439,84 @@ head(pred.nb)
 
 #####################################################################################################
 ###
-### Moving window regression
+### Moving window analysis svm
 ###
 ###
 #####################################################################################################
+fit.svm=svm(vitdrop~max.angle + mu.distance + mu.turn.angle + mu.altitude + mu.temp + mu.dx +
+        mu.dy + sig.distance + sig.turn.angle + sig.altitude + sig.temp + sig.dx +sig.dy,data=df.ma)
+pred.svm <- predict(fit.svm, df.ma)
+points(df.ma$mu.distance, pred.svm, col = "blue", pch=4)
 
+
+corr.bear.alt=matrix(NA,ncol=n.vit,nrow=max(n.obs))
+dim(mu.distance)[1]
+svm.window=rep(list(),dim(mu.distance)[1])
+predict.window=rep(list(),dim(mu.distance)[1])
+glm.window=rep(list(),dim(mu.distance)[1])
+
+w=6
+for(j in 1:n.vit){
+        data.temp =data.frame(cbind(vit.drop[1:n.avg[j],j],mu.distance[1:n.avg[j],j],sig.distance[1:n.avg[j],j],mu.dx[1:n.avg[j],j]),stringsAsFactors = FALSE)
+        names(data.temp)=c("vitdrop","mu.distance","sig.distance","mu.dx")
+        class(data.temp$mu.distance)="numeric"
+        class(data.temp$sig.distance)="numeric"
+        class(data.temp$mu.dx)="numeric"
+        data.temp$vitdrop=as.factor(data.temp$vitdrop)
+        data.temp$mu.distance=scale(data.temp$mu.distance)
+        data.temp$mu.distance.sq=(data.temp$mu.distance)^2
+        svm.window[[j]] = svm(vitdrop~ mu.distance+sig.distance+ mu.distance.sq,data=data.temp,probability=TRUE)
+        predict.window[[j]] = predict(svm.window[[j]],data.temp)
+        glm.window[[j]]= glm(vitdrop~ mu.distance+sig.distance+mu.distance.sq,data=data.temp,family="binomial")
+}
+lapply(glm.window,summary)
+glm.predict=lapply(glm.window,predict)
+plot(glm.predict[[1]])
+
+par(mfrow=c(6,1))
+for(j in 1:n.vit){
+    plot(julian.out[1:n.avg[j],j],predict.window[[j]])
+}
+
+
+
+dev.off()
+lapply(predict.window,sum)
+
+class(predict.window[[1]])
+names(d)[32:39]
+try=glm(d$dropped~scalealt   +  scaletemp +  scalebear   + scaledx  +  scaleR2n+logscalestep+cover,data=d,family=binomial(link="logit"),na.action(na.pass))
+summary(try)
+step(try) 
+
+glm.loo=rep(list(),n.vit)
+glm.loo.predict=rep(list(),n.vit)
+
+for(j in 1:n.vit){
+    d.loo=d[d$lowtag!=individs[j],]
+    glm.loo[[j]]=glm(d.loo$dropped~scalealt+scaleR2n+logscalestep,data=d.loo,family=binomial(link="logit"),na.action(na.pass))
+    d.new=d[d$lowtag==individs[j],]
+    glm.loo.predict[[j]]=predict(glm.loo[[j]],d.new[,c(32,38,39)],type="response")
+    }
+
+par(mfrow=c(2,1))
+for(j in 1:n.vit){
+    plot(d$julian[d$lowtag==individs[j]],glm.loo.predict[[j]],main=d.vit$lowtag[j])
+    abline(v=d.vit$juliandropped[j],col=2)
+    plot(d$julian[d$lowtag==individs[j]],sigmoid(glm.loo.predict[[j]]),main=d.vit$lowtag[j])
+    abline(v=d.vit$juliandropped[j],col=2)
+    }
+
+plot(d$julian[d$lowtag==individs[j]],d$dropped[d$lowtag==individs[j]])
+
+plot()
+
+for(j in 1:n.vit){
+    length(glm.loo[[j]])
+    length(glm.loo.predict[[j]])
+    data.temp=d[d$lowtag==individs[j],]
+    data.temp$julian
+    }
+    
+
+for()
