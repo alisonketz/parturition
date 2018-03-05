@@ -1,17 +1,17 @@
 
 anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
-    
+    individual=id
     #For individual case, run anomaly dection on single individual
     if(n.vit==1){
-        covs.indx = covs.indx
-        numcovs = length(covs.indx)
+        cv.indx = covs.indx
+        numcovs = length(cv.indx)
         epsilon=eps
         ind.mean=rep(NA,numcovs)
         ind.sd=rep(NA,numcovs)
         d.temp=d
         for(k in 1:numcovs){
-            ind.mean[k]=mean(d.temp[d.temp$julian<part.window,covs.indx[k]],na.rm=TRUE)
-            ind.sd[k]=sd(d.temp[d.temp$julian<part.window,covs.indx[k]],na.rm=TRUE)
+            ind.mean[k]=mean(d.temp[d.temp$julian<part.window,cv.indx[k]],na.rm=TRUE)
+            ind.sd[k]=sd(d.temp[d.temp$julian<part.window,cv.indx[k]],na.rm=TRUE)
         }
         
         d.temp=d[d$julian>part.window,]
@@ -22,7 +22,8 @@ anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
             ind.mean=c(ind.mean)
             ind.sd=c(ind.sd)
             source("anomalyDetectUniv.R")
-            single=anomalyDetectUniv(n.out,n.vit=1,part.window=part.window,id=id,d,eps=epsilon,im=ind.mean,is=ind.sd,cov.indx = covs.indx)
+            individual=id
+            single=anomalyDetectUniv(n.out,n.vit=1,part.window=part.window,id=individual,d,eps=epsilon,im=ind.mean,is=ind.sd,cov.indx = cv.indx)
             alarm=single$alarm
             detect.density=single$detect.density
             threshold.density=single$threshold.density
@@ -35,7 +36,7 @@ anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
             d.temp=d[d$julian>part.window,]
             n.temp=dim(d.temp)[1]
             for(k in 1:numcovs){
-                detect.quant[k]=quantile(d.temp[,covs.indx[k]],epsilon[k],na.rm=TRUE)
+                detect.quant[k]=quantile(d.temp[,cv.indx[k]],epsilon[k],na.rm=TRUE)
             }
             threshold.density = dmvnorm(detect.quant,ind.mean,diag(ind.sd))
             for(i in 1:n.temp){
@@ -45,16 +46,16 @@ anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
         }#end else numcovs
     }#endif n.vit=1
     else {# if n.vit>1
-        covs.indx = covs.indx
-        numcovs = length(covs.indx)
+        cv.indx = covs.indx
+        numcovs = length(cv.indx)
         epsilon=eps
         ind.mean=matrix(NA,nr=numcovs,nc=n.vit)
         ind.sd=matrix(NA,nr=numcovs,nc=n.vit)
         for(j in 1:n.vit){
             d.temp=d[d$lowtag==id[j],]
             for(k in 1:numcovs){
-                ind.mean[k,j]=mean(d.temp[d.temp$julian<part.window,covs.indx[k]],na.rm=TRUE)
-                ind.sd[k,j]=sd(d.temp[d.temp$julian<part.window,covs.indx[k]],na.rm=TRUE)
+                ind.mean[k,j]=mean(d.temp[d.temp$julian<part.window,cv.indx[k]],na.rm=TRUE)
+                ind.sd[k,j]=sd(d.temp[d.temp$julian<part.window,cv.indx[k]],na.rm=TRUE)
             }
         }
         
@@ -82,7 +83,7 @@ anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
         
         else{
             detect.quant=matrix(NA,nr=numcovs,nc=n.vit)
-            epsilon=rep(eps,numcovs)
+            epsilon=eps
             threshold.density=rep(NA,n.vit)
             detect.density=matrix(NA,nr=n.out.max,nc=n.vit)
             alarm=rep(list(),n.vit)
@@ -90,15 +91,14 @@ anomalyDetect = function(n.vit,part.window=126,id,d,eps,covs.indx){
                 d.temp1=d[d$lowtag==id[j],]
                 d.temp=d.temp1[d.temp1$julian>part.window,]
                 n.temp=dim(d.temp)[1]
-                n.temp
                 for(k in 1:numcovs){
-                    detect.quant[k,j]=quantile(d.temp[,covs.indx[k]],epsilon[k],na.rm=TRUE)
+                    detect.quant[k,j]=quantile(d.temp[,cv.indx[k]],epsilon[k],na.rm=TRUE)
                 }
                 threshold.density[j] = dmvnorm(detect.quant[,j],ind.mean[,j],diag(ind.sd[,j]))
                 for(i in 1:n.temp){
-                    detect.density[i,j] = dmvnorm(d.temp[i,covs.indx],ind.mean[,j],diag(ind.sd[,j]))
+                    detect.density[i,j] = dmvnorm(d.temp[i,cv.indx],ind.mean[,j],diag(ind.sd[,j]))
                 }
-                alarm[[j]]= d.temp[detect.density[,j]<threshold.density[j],]
+                alarm[[j]]= d.temp[is.finite(detect.density[,j])&detect.density[,j]<threshold.density[j],]
             }#endfor        
         }#end else
         

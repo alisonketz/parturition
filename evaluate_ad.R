@@ -22,7 +22,7 @@ evaluate.time.pop = function(alarm,possible.hits,n.vit=12,vitdropday){
         out.recall = tp.pop/(tp.pop+fn.pop)
         
         # F1 value
-        out.F1 = (2*out.prec*out.recall)/(out.prec+out.recall)
+        out.F1 =ifelse((out.prec+out.recall) == 0,0,(2*out.prec*out.recall)/(out.prec+out.recall))
     }
     else{
         for(j in 1:n.vit){
@@ -55,7 +55,8 @@ evaluate.time.pop = function(alarm,possible.hits,n.vit=12,vitdropday){
         out.recall = tp.pop/(tp.pop+fn.pop)
         
         # F1 value
-        out.F1 = (2*out.prec*out.recall)/(out.prec+out.recall)
+        out.F1 =ifelse((out.prec+out.recall) == 0,0,(2*out.prec*out.recall)/(out.prec+out.recall))
+
     }#endelse
     
     return(list(tp=tp,fp=fp,fn=fn,out.prec=out.prec,out.recall=out.recall,out.F1=out.F1,tp.pop=tp.pop,fp.pop=fp.pop,fn.pop=fn.pop))
