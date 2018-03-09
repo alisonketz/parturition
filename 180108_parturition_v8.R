@@ -37,6 +37,12 @@ library(randomForestExplainer)
 setwd("~/Documents/Parturition/180108_parturition")
 
 ###
+### Load previous runs
+###
+
+load("anomaly_v8_day.Rdata")
+
+###
 ### Load VIT data
 ###
 
@@ -661,7 +667,7 @@ legend("topright",fill=c(1:3),legend=c("Precision","Recall","F1"))
 
 
 save.image("anomaly.daily.Rdata")
-# load("anomaly.Rdata")
+# load("anomaly.daily.Rdata")
 
 par(mfrow=c(3,1))
 # pdf("checks/Precision_check.pdf")
@@ -725,9 +731,20 @@ names(d.day)
 ###precision final model
 fit.prec = anomalyDetect(n.vit=nv,part.window=pw,id=individs,d=d.day,eps=decide[,1],covs.indx=ci)# fit model
 eval.prec=evaluate.time.pop(alarm=fit.prec$alarm,possible.hits=ph,n.vit=nv,vitdropday = d.vit$juliandropped)
+
+###recall final model
+fit.recall = anomalyDetect(n.vit=nv,part.window=pw,id=individs,d=d.day,eps=decide[,2],covs.indx=ci)# fit model
+eval.recall=evaluate.time.pop(alarm=fit.recall$alarm,possible.hits=ph,n.vit=nv,vitdropday = d.vit$juliandropped)
+
+### F1 final model
+fit.F1 = anomalyDetect(n.vit=nv,part.window=pw,id=individs,d=d.day,eps=decide[,3],covs.indx=ci)# fit model
+eval.F1=evaluate.time.pop(alarm=fit.F1$alarm,possible.hits=ph,n.vit=nv,vitdropday = d.vit$juliandropped)
+
+
+
 par(mfrow=c(4,1))
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_prec_part1.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_prec_part1.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.step[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.step"))
     points(fit.prec$alarm[[j]]$julian,fit.prec$alarm[[j]]$mu.step,col=2)
@@ -744,7 +761,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_prec_part2.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_prec_part2.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.temp[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.temp"))
     points(fit.prec$alarm[[j]]$julian,fit.prec$alarm[[j]]$mu.temp,col=2)
@@ -762,7 +779,7 @@ for(j in 1:n.vit){
 }
 
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_prec_part3.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_prec_part3.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.rel.angle[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.rel.angle"))
     points(fit.prec$alarm[[j]]$julian,fit.prec$alarm[[j]]$mu.rel.angle,col=2)
@@ -779,7 +796,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_prec_part4.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_prec_part4.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.dx[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.dx"))
     points(fit.prec$alarm[[j]]$julian,fit.prec$alarm[[j]]$mu.dx,col=2)
@@ -798,12 +815,10 @@ for(j in 1:n.vit){
 
 
 
-###recall final model
-fit.recall = anomalyDetect(n.vit=nv,part.window=pw,id=individs,d=d.day,eps=decide[,2],covs.indx=ci)# fit model
-eval.recall=evaluate.time.pop(alarm=fit.recall$alarm,possible.hits=ph,n.vit=nv,vitdropday = d.vit$juliandropped)
+### Plots recall final model
 par(mfrow=c(4,1))
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part1.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part1.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.step[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.step"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.step,col=2)
@@ -820,7 +835,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part2.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part2.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.temp[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.temp"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.temp,col=2)
@@ -838,7 +853,7 @@ for(j in 1:n.vit){
 }
 
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part3.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part3.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.rel.angle[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.rel.angle"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.rel.angle,col=2)
@@ -855,7 +870,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part4.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part4.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.dx[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.dx"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.dx,col=2)
@@ -874,11 +889,9 @@ for(j in 1:n.vit){
 
 
 
-### F1 final model
-fit.F1 = anomalyDetect(n.vit=nv,part.window=pw,id=individs,d=d.day,eps=decide[,3],covs.indx=ci)# fit model
-eval.F1=evaluate.time.pop(alarm=fit.F1$alarm,possible.hits=ph,n.vit=nv,vitdropday = d.vit$juliandropped)
+### Plots F1 final model
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part1.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part1.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.step[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.step"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.step,col=2)
@@ -895,7 +908,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part2.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part2.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.temp[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.temp"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.temp,col=2)
@@ -913,7 +926,7 @@ for(j in 1:n.vit){
 }
 
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part3.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part3.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.rel.angle[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.rel.angle"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.rel.angle,col=2)
@@ -930,7 +943,7 @@ for(j in 1:n.vit){
     dev.off()
 }
 for(j in 1:n.vit){
-    pdf(paste("outputplots_anomaly6/",individs[j],"_recall_part4.pdf",sep=""),width=6,height=9)
+    pdf(paste("outputplots_anomaly8/",individs[j],"_recall_part4.pdf",sep=""),width=6,height=9)
     par(mfrow=c(4,1))
     plot(d.day$julian[d.day$lowtag==individs[j]],d.day$mu.dx[d.day$lowtag==individs[j]],main=paste(individs[j],"mu.dx"))
     points(fit.recall$alarm[[j]]$julian,fit.recall$alarm[[j]]$mu.dx,col=2)
@@ -952,7 +965,7 @@ for(j in 1:n.vit){
 
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
-pdf(paste("outputplots_anomaly6/","AD_eval_F1_num1.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_F1_num1.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 1:3){
     tab = table(fit.F1$alarm[[j]]$julian)
@@ -961,16 +974,16 @@ for(j in 1:3){
     }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_F1_num2.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_F1_num2.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
-for(j in 4:6){
+for(j in c(4,6)){
     tab = table(fit.F1$alarm[[j]]$julian)
     plot(tab,main=paste("Anomaly Detection",individs[j]),xlab = "Julian day",ylab = "Number of hits",xlim=c(126,188))
     abline(v=d.vit$juliandropped[j],col=cbPalette[4],lty=2)
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_F1_num3.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_F1_num3.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 7:9){
     tab = table(fit.F1$alarm[[j]]$julian)
@@ -979,7 +992,7 @@ for(j in 7:9){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_F1_num4.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_F1_num4.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 10:12){
     tab = table(fit.F1$alarm[[j]]$julian)
@@ -990,7 +1003,7 @@ dev.off()
  
 
 
-pdf(paste("outputplots_anomaly6/","AD_eval_recall_num1.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_recall_num1.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 1:3){
     tab = table(fit.recall$alarm[[j]]$julian)
@@ -999,7 +1012,7 @@ for(j in 1:3){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_recall_num2.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_recall_num2.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 4:6){
     tab = table(fit.recall$alarm[[j]]$julian)
@@ -1008,7 +1021,7 @@ for(j in 4:6){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_recall_num3.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_recall_num3.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 7:9){
     tab = table(fit.recall$alarm[[j]]$julian)
@@ -1017,7 +1030,7 @@ for(j in 7:9){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_recall_num4.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_recall_num4.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 10:12){
     tab = table(fit.recall$alarm[[j]]$julian)
@@ -1027,7 +1040,7 @@ for(j in 10:12){
 dev.off()
 
 
-pdf(paste("outputplots_anomaly6/","AD_eval_prec_num1.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_prec_num1.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 1:3){
     tab = table(fit.prec$alarm[[j]]$julian)
@@ -1036,16 +1049,16 @@ for(j in 1:3){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_prec_num2.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_prec_num2.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
-for(j in 5:6){
+for(j in c(4,6)){
     tab = table(fit.prec$alarm[[j]]$julian)
     plot(tab,main=paste("Anomaly Detection",individs[j]),xlab = "Julian day",ylab = "Number of hits",xlim=c(126,188))
     abline(v=d.vit$juliandropped[j],col=cbPalette[4],lty=2)
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_prec_num3.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_prec_num3.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 7:9){
     tab = table(fit.prec$alarm[[j]]$julian)
@@ -1054,7 +1067,7 @@ for(j in 7:9){
 }
 dev.off()
 
-pdf(paste("outputplots_anomaly6/","AD_eval_prec_num4.pdf",sep=""),width=6,height=9)
+pdf(paste("outputplots_anomaly8/","AD_eval_prec_num4.pdf",sep=""),width=6,height=9)
 par(mfrow=c(3,1))   
 for(j in 10:12){
     tab = table(fit.prec$alarm[[j]]$julian)
@@ -1119,7 +1132,27 @@ hit.day.recall
 
 write.csv(hit.day.recall,file="daily_summary_hitday_recall.csv")
 
+fit.recall$alarm[[5]]
 
+
+Metric=c("total number of days with hits prior to day before vit drop",
+         "total number of days prior to vit drop",
+         "ratio of hits to total possible days",
+         "logical- whether the the algorithm hit +/- 1 day of vit drop",
+         "logical- whether the the algorithm hit +/- 3 days of vit dropth",
+         "total number of hits within 1 days",
+         "total number of hits within 3 days",
+         "total number of hits on vit drop day",
+         "total number of hits prior to vit drop day")
+
+hit.day.recall[,3]=round(hit.day.recall[,3],2)
+
+out.recall=as.data.frame(cbind(Metric,t(hit.day.recall)),stringsAsFactors=FALSE)re
+names(out.recall)=NULL
+library(xtable)
+xtable(out.recall,include.rownames=FALSE)
+
+hit.day.recall
 
 hit.day.F1=matrix(NA,nr=n.vit,nc = 9)
 #col1 is total number of days with hits prior to day before vit drop
@@ -1148,4 +1181,5 @@ write.csv(hit.day.F1,file="daily_summary_hitday_F1.csv")
 
 ##############################################################################################
 
+save.image("anomaly_v8_day.Rdata")
 
