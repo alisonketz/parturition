@@ -1,0 +1,15 @@
+Versions of Parturition Anomaly detection
+
+v1:v6 are early versions, trade between linux/windows OS's 
+
+v7: mostly final version on GPS fix rate time scale
+
+v8: mostly final version on daily time scale, using means/sd's of features across all observations on a given julian day
+
+v9: mostly final version on three day time scale, using means/sd's of features across all observations from the two previous+ present julian day
+
+v10: combining v8 and v9, using both time scales for features. 
+
+v11: mostly final version on two day time scale, using means/sd's of features across all observations from the one previous+ present julian day
+
+v12: combining v8 and v11, using both time scales for features. 
